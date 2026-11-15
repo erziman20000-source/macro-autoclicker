@@ -17,8 +17,20 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Generate Gradle Wrapper & Build
+      - name: Auto-fix structure & Build APK
         run: |
+          mkdir -p _clean/app/src/main/java/com/example/macroautoclicker
+          mkdir -p _clean/app/src/main/res/xml
+          mkdir -p _clean/app/src/main/res/values
+          cp settings.gradle gradle.properties _clean/
+          find . -maxdepth 1 -name "build.gradle" -exec cp {} _clean/build.gradle \;
+          find . -path "*app*build.gradle" -exec cp {} _clean/app/build.gradle \;
+          find . -name "AndroidManifest.xml" -exec cp {} _clean/app/src/main/AndroidManifest.xml \;
+          find . -name "accessibility_service_config.xml" -exec cp {} _clean/app/src/main/res/xml/accessibility_service_config.xml \;
+          find . -name "strings.xml" -exec cp {} _clean/app/src/main/res/values/strings.xml \;
+          find . -name "MainActivity.kt" -exec cp {} _clean/app/src/main/java/com/example/macroautoclicker/MainActivity.kt \;
+          find . -name "AutoClickerService.kt" -exec cp {} _clean/app/src/main/java/com/example/macroautoclicker/AutoClickerService.kt \;
+          cd _clean
           gradle wrapper --gradle-version 8.5
           chmod +x gradlew
           ./gradlew assembleDebug
@@ -27,4 +39,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MacroAutoClicker-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: _clean/app/build/outputs/apk/debug/app-debug.apk
