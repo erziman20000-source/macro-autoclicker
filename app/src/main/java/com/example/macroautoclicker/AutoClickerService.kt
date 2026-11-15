@@ -18,17 +18,14 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.abs
 
-/**
- * Модель одного записанного нажатия на экран.
- */
 data class ClickEvent(
     val x: Float,
     val y: Float,
@@ -42,6 +39,11 @@ class AutoClickerService : AccessibilityService() {
     private var panelLayoutParams: WindowManager.LayoutParams? = null
     private var touchOverlayView: View? = null
 
+    private var headerRowView: LinearLayout? = null
+    private var contentContainer: LinearLayout? = null
+    private var collapsedBubbleView: TextView? = null
+    private var isCollapsed = false
+
     private val recordedClicks = mutableListOf<ClickEvent>()
     private var isRecording = false
     private var isPlaying = false
@@ -50,14 +52,12 @@ class AutoClickerService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var currentStepIndex = 0
 
-    // Элементы интерфейса плавающей панели
     private lateinit var statusText: TextView
-    private lateinit var btnRecord: Button
-    private lateinit var btnPlay: Button
-    private lateinit var btnSave: Button
-    private lateinit var btnLoad: Button
+    private lateinit var btnRecord: TextView
+    private lateinit var btnPlay: TextView
+    private lateinit var btnSave: TextView
+    private lateinit var btnLoad: TextView
 
-    // Имя файла настроек для хранения макросов в памяти телефона
     private val prefsName = "MacroAutoClickerStorage"
 
     override fun onServiceConnected() {
@@ -75,78 +75,142 @@ class AutoClickerService : AccessibilityService() {
         setupFloatingPanel()
     }
 
-    /**
-     * Создает стильную плавающую панель управления с возможностью перетаскивания
-     * и кнопками сохранения/загрузки макросов.
-     */
-    private fun setupFloatingPanel() {
-        val bgDrawable = GradientDrawable().apply {
-            setColor(Color.parseColor("#E61C1C1E"))
-            cornerRadius = 28f
-            setStroke(2, Color.parseColor("#44FFFFFF"))
+    private fun createCompactButton(label: String, bgColorHex: String): TextView {
+        val drawable = GradientDrawable().apply {
+            setColor(Color.parseColor(bgColorHex))
+            cornerRadius = 16f
         }
-
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = bgDrawable
-            setPadding(24, 18, 24, 24)
-        }
-
-        // Верхняя полоска для перетаскивания панели пальцем
-        val dragHandle = TextView(this).apply {
-            text = "⠿ Перетащить"
-            setTextColor(Color.parseColor("#AAAAAA"))
+        return TextView(this).apply {
+            text = label
+            setTextColor(Color.WHITE)
             textSize = 11f
             gravity = Gravity.CENTER
-            setPadding(0, 4, 0, 12)
+            background = drawable
+            setPadding(20, 14, 20, 14)
+        }
+    }
+
+    private fun setupFloatingPanel() {
+        val bgDrawable = GradientDrawable().apply {
+            setColor(Color.parseColor("#CC18181B"))
+            cornerRadius = 24f
+            setStroke(2, Color.parseColor("#33FFFFFF"))
+        }
+
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = bgDrawable
+            setPadding(16, 12, 16, 14)
+        }
+
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val dragHandle = TextView(this).apply {
+            text = "⠿ Двигать"
+            setTextColor(Color.parseColor("#99FFFFFF"))
+            textSize = 10f
+            setPadding(4, 2, 16, 2)
+        }
+
+        val minimizeBtnBg = GradientDrawable().apply {
+            setColor(Color.parseColor("#33FFFFFF"))
+            cornerRadius = 12f
+        }
+
+        val btnMinimize = TextView(this).apply {
+            text = "—"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            gravity = Gravity.CENTER
+            background = minimizeBtnBg
+            setPadding(18, 2, 18, 4)
+            setOnClickListener { collapsePanel() }
+        }
+
+        headerRow.addView(dragHandle)
+        headerRow.addView(btnMinimize)
+
+        val bodyContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 6, 0, 0)
         }
 
         statusText = TextView(this).apply {
-            text = "Готов (Кликов: 0)"
-            setTextColor(Color.WHITE)
-            textSize = 12f
+            text = "Готов (0)"
+            setTextColor(Color.parseColor("#E0E0E0"))
+            textSize = 10f
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 10)
+            setPadding(0, 0, 0, 8)
         }
 
-        btnRecord = Button(this).apply {
-            text = "● Запись"
-            textSize = 12f
-            setOnClickListener { toggleRecording() }
-        }
-
-        btnPlay = Button(this).apply {
-            text = "▶ Старт"
-            textSize = 12f
-            setOnClickListener { togglePlayback() }
-        }
-
-        // Горизонтальный ряд для кнопок сохранения и загрузки макросов
-        val macroRow = LinearLayout(this).apply {
+        val row1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
 
-        btnSave = Button(this).apply {
-            text = "💾 Сохр."
-            textSize = 11f
+        btnRecord = createCompactButton("● Зап.", "#D9383A").apply {
+            setOnClickListener { toggleRecording() }
+        }
+
+        val spacer1 = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(10, 1)
+        }
+
+        btnPlay = createCompactButton("▶ Старт", "#2E7D32").apply {
+            setOnClickListener { togglePlayback() }
+        }
+
+        row1.addView(btnRecord)
+        row1.addView(spacer1)
+        row1.addView(btnPlay)
+
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, 8, 0, 0)
+        }
+
+        btnSave = createCompactButton("💾 Сохр.", "#3A3A3C").apply {
             setOnClickListener { showSaveMacroDialog() }
         }
 
-        btnLoad = Button(this).apply {
-            text = "📂 Макросы"
-            textSize = 11f
+        val spacer2 = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(10, 1)
+        }
+
+        btnLoad = createCompactButton("📂 Спис.", "#3A3A3C").apply {
             setOnClickListener { showLoadMacroDialog() }
         }
 
-        macroRow.addView(btnSave)
-        macroRow.addView(btnLoad)
+        row2.addView(btnSave)
+        row2.addView(spacer2)
+        row2.addView(btnLoad)
 
-        layout.addView(dragHandle)
-        layout.addView(statusText)
-        layout.addView(btnRecord)
-        layout.addView(btnPlay)
-        layout.addView(macroRow)
+        bodyContainer.addView(statusText)
+        bodyContainer.addView(row1)
+        bodyContainer.addView(row2)
+
+        val bubbleBg = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.parseColor("#5518181B"))
+            setStroke(2, Color.parseColor("#55FFFFFF"))
+        }
+
+        val bubble = TextView(this).apply {
+            text = "⚡"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            background = bubbleBg
+            setPadding(18, 14, 18, 14)
+            visibility = View.GONE
+        }
+
+        rootLayout.addView(headerRow)
+        rootLayout.addView(bodyContainer)
+        rootLayout.addView(bubble)
 
         val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -163,16 +227,31 @@ class AutoClickerService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 50
+            x = 40
             y = 200
         }
 
-        // Логика перетаскивания панели при удержании шапки "⠿ Перетащить"
-        dragHandle.setOnTouchListener(object : View.OnTouchListener {
+        dragHandle.setOnTouchListener(createDragTouchListener(params, onClick = null))
+        bubble.setOnTouchListener(createDragTouchListener(params, onClick = { expandPanel() }))
+
+        headerRowView = headerRow
+        contentContainer = bodyContainer
+        collapsedBubbleView = bubble
+        panelLayoutParams = params
+        floatingPanelView = rootLayout
+        windowManager.addView(floatingPanelView, params)
+    }
+
+    private fun createDragTouchListener(
+        params: WindowManager.LayoutParams,
+        onClick: (() -> Unit)?
+    ): View.OnTouchListener {
+        return object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
             private var initialTouchX = 0f
             private var initialTouchY = 0f
+            private var isMoved = false
 
             override fun onTouch(v: View?, event: MotionEvent): Boolean {
                 when (event.action) {
@@ -181,27 +260,57 @@ class AutoClickerService : AccessibilityService() {
                         initialY = params.y
                         initialTouchX = event.rawX
                         initialTouchY = event.rawY
+                        isMoved = false
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.x = initialX + (event.rawX - initialTouchX).toInt()
-                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        val dx = (event.rawX - initialTouchX).toInt()
+                        val dy = (event.rawY - initialTouchY).toInt()
+                        if (abs(dx) > 8 || abs(dy) > 8) {
+                            isMoved = true
+                        }
+                        params.x = initialX + dx
+                        params.y = initialY + dy
                         windowManager.updateViewLayout(floatingPanelView, params)
+                        return true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!isMoved) {
+                            onClick?.invoke()
+                        }
                         return true
                     }
                 }
                 return false
             }
-        })
-
-        panelLayoutParams = params
-        floatingPanelView = layout
-        windowManager.addView(floatingPanelView, params)
+        }
     }
 
-    /**
-     * Открывает диалоговое окно поверх всех окон для ввода имени нового макроса.
-     */
+    private fun collapsePanel() {
+        isCollapsed = true
+        headerRowView?.visibility = View.GONE
+        contentContainer?.visibility = View.GONE
+        floatingPanelView?.background = null
+        floatingPanelView?.setPadding(0, 0, 0, 0)
+        collapsedBubbleView?.visibility = View.VISIBLE
+        panelLayoutParams?.let { windowManager.updateViewLayout(floatingPanelView, it) }
+    }
+
+    private fun expandPanel() {
+        isCollapsed = false
+        val bgDrawable = GradientDrawable().apply {
+            setColor(Color.parseColor("#CC18181B"))
+            cornerRadius = 24f
+            setStroke(2, Color.parseColor("#33FFFFFF"))
+        }
+        floatingPanelView?.background = bgDrawable
+        floatingPanelView?.setPadding(16, 12, 16, 14)
+        collapsedBubbleView?.visibility = View.GONE
+        headerRowView?.visibility = View.VISIBLE
+        contentContainer?.visibility = View.VISIBLE
+        panelLayoutParams?.let { windowManager.updateViewLayout(floatingPanelView, it) }
+    }
+
     private fun showSaveMacroDialog() {
         if (isRecording) toggleRecording()
         if (isPlaying) stopPlayback()
@@ -250,9 +359,6 @@ class AutoClickerService : AccessibilityService() {
         dialog.show()
     }
 
-    /**
-     * Открывает список всех сохранённых макросов для выбора или удаления.
-     */
     private fun showLoadMacroDialog() {
         if (isRecording) toggleRecording()
         if (isPlaying) stopPlayback()
@@ -296,9 +402,6 @@ class AutoClickerService : AccessibilityService() {
         dialog.show()
     }
 
-    /**
-     * Окно для удаления ненужного макроса.
-     */
     private fun showDeleteMacroDialog(macroNames: Array<String>) {
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle("Нажмите на запись для удаления")
@@ -368,12 +471,12 @@ class AutoClickerService : AccessibilityService() {
             isRecording = true
             lastEventTime = System.currentTimeMillis()
             btnRecord.text = "■ Стоп"
-            statusText.text = "Запись идет..."
+            statusText.text = "Запись..."
             attachTouchRecorderOverlay()
         } else {
             isRecording = false
-            btnRecord.text = "● Запись"
-            statusText.text = "Записано: ${recordedClicks.size}"
+            btnRecord.text = "● Зап."
+            statusText.text = "Кликов: ${recordedClicks.size}"
             detachTouchRecorderOverlay()
         }
     }
@@ -448,7 +551,7 @@ class AutoClickerService : AccessibilityService() {
             isPlaying = true
             currentStepIndex = 0
             btnPlay.text = "■ Пауза"
-            statusText.text = "Воспроизведение..."
+            statusText.text = "Работает..."
             scheduleNextClick()
         } else {
             stopPlayback()
@@ -459,7 +562,7 @@ class AutoClickerService : AccessibilityService() {
         isPlaying = false
         handler.removeCallbacksAndMessages(null)
         btnPlay.text = "▶ Старт"
-        statusText.text = "Остановлено (${recordedClicks.size})"
+        statusText.text = "Пауза (${recordedClicks.size})"
     }
 
     private fun scheduleNextClick() {
